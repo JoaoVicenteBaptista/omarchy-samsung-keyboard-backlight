@@ -159,8 +159,19 @@ trap cleanup EXIT INT TERM
 start_idle_watcher
 
 current_level=""
+pre_idle_level=""
 declare -a lux_hist=()
 als_fail_since=0
+
+# While lights are off for idle, block until last_input changes (or timeout).
+wait_while_idle() {
+  if command -v inotifywait >/dev/null; then
+    # Directory watch: atomic replace of last_input is moved_to/create, not modify-on-inode.
+    inotifywait -qq -t 1 -e moved_to,create,close_write "$RUNTIME_DIR" 2>/dev/null || true
+  else
+    sleep 0.15
+  fi
+}
 
 log "kbd=$KBD_DEV als=$ALS_DEV dry_run=$DRY_RUN"
 
@@ -204,19 +215,30 @@ while true; do
     if [[ "$state" != "IDLE_OFF" ]]; then
       echo "IDLE_OFF" >"$RUNTIME_DIR/state"
       state=IDLE_OFF
+      # Remember level to restore instantly on first key/mouse event.
+      if [[ -n "$current_level" && "$current_level" != "0" ]]; then
+        pre_idle_level=$current_level
+      elif [[ -n "$last_set" && "$last_set" != "0" ]]; then
+        pre_idle_level=$last_set
+      fi
       apply_brightness 0
       # Must track off so activity re-applies ambient level (was stuck at old level).
       current_level=0
       log "idle ${idle_for}s -> off"
     fi
     [[ "$DRY_RUN" -eq 1 ]] && log "state=$state idle_for=$idle_for"
-    sleep "$KBD_AMBIENT_POLL_INTERVAL_SEC"
+    wait_while_idle
     continue
   elif [[ "$state" == "IDLE_OFF" ]]; then
     echo "ACTIVE_AUTO" >"$RUNTIME_DIR/state"
     state=ACTIVE_AUTO
-    # Force ambient remap/apply on wake from idle.
-    current_level=""
+    # Instant restore (don't wait for ALS median); ambient loop may refine next ticks.
+    if [[ -n "$pre_idle_level" && "$pre_idle_level" != "0" ]]; then
+      apply_brightness "$pre_idle_level"
+      current_level=$pre_idle_level
+    else
+      current_level=""
+    fi
     log "activity -> auto"
   fi
 
