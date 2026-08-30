@@ -1,0 +1,177 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+for candidate in \
+  "$SCRIPT_DIR/../lib/kbd-ambient-lib.sh" \
+  "$HOME/.local/lib/kbd-ambient-lib.sh" \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/kbd-ambient/kbd-ambient-lib.sh"
+do
+  if [[ -f "$candidate" ]]; then
+    # shellcheck source=/dev/null
+    source "$candidate"
+    break
+  fi
+done
+if ! declare -F kbd_ambient_set_defaults >/dev/null; then
+  echo "kbd-ambientd: cannot find kbd-ambient-lib.sh" >&2
+  exit 1
+fi
+
+DRY_RUN=0
+[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
+
+kbd_ambient_set_defaults
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-samsung-kbd-backlight"
+kbd_ambient_load_config "$CONFIG_DIR/config"
+
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/kbd-ambientd"
+mkdir -p "$RUNTIME_DIR"
+echo $$ >"$RUNTIME_DIR/pid"
+echo "ACTIVE_AUTO" >"$RUNTIME_DIR/state"
+echo 0 >"$RUNTIME_DIR/manual_until"
+date +%s >"$RUNTIME_DIR/last_input"
+echo "" >"$RUNTIME_DIR/last_set_brightness"
+
+SYS_ROOT=/sys
+KBD_DEV=$(kbd_ambient_discover_kbd "$SYS_ROOT") || {
+  echo "kbd-ambientd: no *kbd_backlight* LED found" >&2
+  exit 0
+}
+ALS_DEV=$(kbd_ambient_discover_als "$SYS_ROOT") || {
+  echo "kbd-ambientd: no IIO illuminance (ALS) found" >&2
+  exit 0
+}
+
+log() { echo "kbd-ambientd: $*" >&2; }
+
+apply_brightness() {
+  local level="$1"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "dry-run set $KBD_DEV -> $level"
+    echo "$level" >"$RUNTIME_DIR/last_set_brightness"
+    return 0
+  fi
+  if brightnessctl -d "$KBD_DEV" set "$level" >/dev/null; then
+    echo "$level" >"$RUNTIME_DIR/last_set_brightness"
+  else
+    log "brightnessctl failed for level $level"
+  fi
+}
+
+read_hw_brightness() {
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    cat "$RUNTIME_DIR/last_set_brightness" 2>/dev/null || echo 0
+    return
+  fi
+  brightnessctl -d "$KBD_DEV" get
+}
+
+start_idle_watcher() {
+  if ! command -v libinput >/dev/null; then
+    log "libinput not found; idle-off disabled"
+    return 0
+  fi
+  (
+    stdbuf -oL libinput debug-events 2>/dev/null | while IFS= read -r _line; do
+      date +%s >"$RUNTIME_DIR/last_input"
+    done
+  ) &
+  echo $! >"$RUNTIME_DIR/idle_watcher_pid"
+}
+
+cleanup() {
+  if [[ -f "$RUNTIME_DIR/idle_watcher_pid" ]]; then
+    kill "$(cat "$RUNTIME_DIR/idle_watcher_pid")" 2>/dev/null || true
+  fi
+  rm -f "$RUNTIME_DIR/pid"
+}
+trap cleanup EXIT INT TERM
+
+start_idle_watcher
+
+current_level=""
+declare -a lux_hist=()
+als_fail_since=0
+
+log "kbd=$KBD_DEV als=$ALS_DEV dry_run=$DRY_RUN"
+
+while true; do
+  now=$(date +%s)
+  manual_until=$(cat "$RUNTIME_DIR/manual_until" 2>/dev/null || echo 0)
+  last_input=$(cat "$RUNTIME_DIR/last_input" 2>/dev/null || echo "$now")
+  state=$(cat "$RUNTIME_DIR/state" 2>/dev/null || echo ACTIVE_AUTO)
+
+  hw=$(read_hw_brightness)
+  last_set=$(cat "$RUNTIME_DIR/last_set_brightness" 2>/dev/null || echo "")
+  if [[ -n "$last_set" && "$hw" != "$last_set" && "$state" != "MANUAL_PAUSE" ]]; then
+    manual_until=$((now + KBD_AMBIENT_MANUAL_PAUSE_SEC))
+    echo "$manual_until" >"$RUNTIME_DIR/manual_until"
+    echo "MANUAL_PAUSE" >"$RUNTIME_DIR/state"
+    state=MANUAL_PAUSE
+    current_level=$hw
+    log "manual override detected hw=$hw pause until $manual_until"
+  fi
+
+  if [[ "$state" == "MANUAL_PAUSE" ]]; then
+    if (( now >= manual_until )); then
+      echo "ACTIVE_AUTO" >"$RUNTIME_DIR/state"
+      state=ACTIVE_AUTO
+      log "manual pause ended"
+    else
+      [[ "$DRY_RUN" -eq 1 ]] && log "state=$state lux=? level=hold"
+      sleep "$KBD_AMBIENT_POLL_INTERVAL_SEC"
+      continue
+    fi
+  fi
+
+  idle_for=$((now - last_input))
+  if (( idle_for >= KBD_AMBIENT_IDLE_TIMEOUT_SEC )); then
+    if [[ "$state" != "IDLE_OFF" ]]; then
+      echo "IDLE_OFF" >"$RUNTIME_DIR/state"
+      state=IDLE_OFF
+      apply_brightness 0
+      log "idle ${idle_for}s -> off"
+    fi
+    [[ "$DRY_RUN" -eq 1 ]] && log "state=$state idle_for=$idle_for"
+    sleep "$KBD_AMBIENT_POLL_INTERVAL_SEC"
+    continue
+  elif [[ "$state" == "IDLE_OFF" ]]; then
+    echo "ACTIVE_AUTO" >"$RUNTIME_DIR/state"
+    state=ACTIVE_AUTO
+    log "activity -> auto"
+  fi
+
+  if lux=$(kbd_ambient_read_lux "$SYS_ROOT" "$ALS_DEV" 2>/dev/null); then
+    als_fail_since=0
+  else
+    if (( als_fail_since == 0 )); then als_fail_since=$now; fi
+    if (( now - als_fail_since > 10 )); then
+      lux=99999
+    else
+      if (( ${#lux_hist[@]} > 0 )); then
+        lux="${lux_hist[$(( ${#lux_hist[@]} - 1 ))]}"
+      else
+        lux=99999
+      fi
+    fi
+  fi
+
+  lux_hist+=("$lux")
+  if (( ${#lux_hist[@]} > KBD_AMBIENT_MEDIAN_SAMPLES )); then
+    lux_hist=("${lux_hist[@]:$(( ${#lux_hist[@]} - KBD_AMBIENT_MEDIAN_SAMPLES ))}")
+  fi
+  med=$(kbd_ambient_median "${lux_hist[@]}")
+
+  target=$(kbd_ambient_map_level "$med" "$current_level")
+  if [[ "$target" != "$current_level" ]]; then
+    apply_brightness "$target"
+    current_level=$target
+  fi
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "state=$state lux=$med target=$target current=$current_level"
+  fi
+
+  sleep "$KBD_AMBIENT_POLL_INTERVAL_SEC"
+done
