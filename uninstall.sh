@@ -13,4 +13,9 @@ systemctl --user daemon-reload
 if [[ "$PURGE" -eq 1 ]]; then
   rm -rf "$HOME/.config/omarchy-samsung-kbd-backlight"
 fi
+if command -v omarchy >/dev/null 2>&1; then
+  omarchy plugin disable joao.kbd-backlight 2>/dev/null || true
+fi
+rm -rf "$HOME/.config/omarchy/plugins/joao.kbd-backlight"
 echo "Uninstalled kbd-ambientd"
+

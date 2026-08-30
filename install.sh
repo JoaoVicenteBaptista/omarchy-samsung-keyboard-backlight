@@ -42,3 +42,22 @@ else
 fi
 
 echo "ctl: kbd-ambientctl status"
+
+# --- Omarchy bar plugin ---
+PLUGIN_SRC="$ROOT/plugin/joao.kbd-backlight"
+PLUGIN_DST="$HOME/.config/omarchy/plugins/joao.kbd-backlight"
+if [[ -d "$PLUGIN_SRC" ]]; then
+  mkdir -p "$HOME/.config/omarchy/plugins"
+  rm -rf "$PLUGIN_DST"
+  mkdir -p "$PLUGIN_DST"
+  cp -a "$PLUGIN_SRC"/. "$PLUGIN_DST"/
+  if command -v omarchy >/dev/null 2>&1; then
+    omarchy plugin enable joao.kbd-backlight --section right 2>/dev/null || true
+    omarchy bar put joao.kbd-backlight --section right --before omarchy.power 2>/dev/null \
+      || omarchy bar put joao.kbd-backlight --section right 2>/dev/null \
+      || true
+    omarchy-shell shell rescanPlugins 2>/dev/null || true
+  fi
+  echo "Installed Omarchy plugin joao.kbd-backlight"
+fi
+
