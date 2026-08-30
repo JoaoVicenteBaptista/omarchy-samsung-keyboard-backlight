@@ -1,0 +1,15 @@
+#!/bin/bash
+set -euo pipefail
+
+has_kbd=0
+has_als=0
+for d in /sys/class/leds/*kbd_backlight*; do
+  [[ -e "$d" ]] && has_kbd=1 && break
+done
+for d in /sys/bus/iio/devices/iio:device*; do
+  [[ -e "$d/in_illuminance_raw" ]] && has_als=1 && break
+done
+
+if [[ "$has_kbd" -eq 1 && "$has_als" -eq 1 ]]; then
+  systemctl --user enable --now kbd-ambientd.service 2>/dev/null || true
+fi

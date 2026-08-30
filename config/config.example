@@ -1,0 +1,15 @@
+# ~/.config/omarchy-samsung-kbd-backlight/config
+poll_interval_sec=1
+idle_timeout_sec=60
+manual_pause_sec=45
+lux_dark=20
+lux_dim=80
+lux_indoor=200
+level_dark=3
+level_dim=2
+level_indoor=1
+level_bright=0
+hysteresis_ratio=0.2
+median_samples=3
+# kbd_device=samsung-galaxybook::kbd_backlight
+# als_device=iio:device0
