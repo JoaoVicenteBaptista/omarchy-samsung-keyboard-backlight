@@ -34,7 +34,8 @@ for d in /sys/class/leds/*kbd_backlight*; do [[ -e "$d" ]] && has_kbd=1 && break
 for d in /sys/bus/iio/devices/iio:device*; do [[ -e "$d/in_illuminance_raw" ]] && has_als=1 && break; done
 
 if [[ "$has_kbd" -eq 1 && "$has_als" -eq 1 ]]; then
-  systemctl --user enable --now kbd-ambientd.service
+  systemctl --user enable kbd-ambientd.service
+  systemctl --user restart kbd-ambientd.service
   echo "Installed and started kbd-ambientd.service"
 else
   echo "Installed (hardware not detected; unit not started)"

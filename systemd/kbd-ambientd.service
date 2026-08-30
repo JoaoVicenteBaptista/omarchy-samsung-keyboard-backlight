@@ -8,6 +8,7 @@ Type=simple
 ExecStart=%h/.local/bin/kbd-ambientd
 Restart=on-failure
 RestartSec=2
+SuccessExitStatus=143 0
 
 [Install]
 WantedBy=graphical-session.target
