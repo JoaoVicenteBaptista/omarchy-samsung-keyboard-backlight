@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "joao.kbd-backlight",
+  "name": "Keyboard Backlight",
+  "version": "1.0.0",
+  "author": "Joao",
+  "license": "MIT",
+  "description": "Keyboard backlight on/off, intensity, and ambient auto for Omarchy.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Keyboard Backlight",
+    "description": "Control keyboard backlight brightness and ambient auto.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
