@@ -1,0 +1,46 @@
+#!/bin/bash
+set -euo pipefail
+
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/kbd-ambientd"
+UNIT=kbd-ambientd.service
+
+cmd="${1:-status}"
+
+case "$cmd" in
+  status)
+    echo "unit: $(systemctl --user is-active "$UNIT" 2>/dev/null || echo n/a)"
+    if [[ -f "$RUNTIME_DIR/state" ]]; then
+      echo "state: $(cat "$RUNTIME_DIR/state")"
+      echo "last_set: $(cat "$RUNTIME_DIR/last_set_brightness" 2>/dev/null || echo n/a)"
+      echo "manual_until: $(cat "$RUNTIME_DIR/manual_until" 2>/dev/null || echo 0)"
+      echo "last_input: $(cat "$RUNTIME_DIR/last_input" 2>/dev/null || echo n/a)"
+      echo "pid: $(cat "$RUNTIME_DIR/pid" 2>/dev/null || echo n/a)"
+    else
+      echo "runtime: not running (no $RUNTIME_DIR)"
+    fi
+    ;;
+  pause)
+    now=$(date +%s)
+    mkdir -p "$RUNTIME_DIR"
+    echo $((now + 3650*24*3600)) >"$RUNTIME_DIR/manual_until"
+    echo MANUAL_PAUSE >"$RUNTIME_DIR/state"
+    echo "paused"
+    ;;
+  resume)
+    mkdir -p "$RUNTIME_DIR"
+    echo 0 >"$RUNTIME_DIR/manual_until"
+    echo ACTIVE_AUTO >"$RUNTIME_DIR/state"
+    date +%s >"$RUNTIME_DIR/last_input"
+    echo "resumed"
+    ;;
+  enable)
+    systemctl --user enable --now "$UNIT"
+    ;;
+  disable)
+    systemctl --user disable --now "$UNIT"
+    ;;
+  *)
+    echo "Usage: kbd-ambientctl {status|pause|resume|enable|disable}" >&2
+    exit 2
+    ;;
+esac
