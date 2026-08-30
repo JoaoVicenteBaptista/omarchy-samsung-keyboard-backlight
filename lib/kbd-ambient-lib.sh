@@ -63,3 +63,73 @@ kbd_ambient_map_level() {
   down=$(_kbd_ambient_band "$lux" "$step_down_a" "$step_down_b" "$step_down_c")
   if (( down < cur )); then echo "$down"; else echo "$cur"; fi
 }
+
+kbd_ambient_load_config() {
+  local file="$1" key val
+  [[ -f "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// }" ]] && continue
+    key="${line%%=*}"; val="${line#*=}"
+    key="${key// /}"; val="${val#"${val%%[![:space:]]*}"}"
+    case "$key" in
+      poll_interval_sec) KBD_AMBIENT_POLL_INTERVAL_SEC=$val ;;
+      idle_timeout_sec) KBD_AMBIENT_IDLE_TIMEOUT_SEC=$val ;;
+      manual_pause_sec) KBD_AMBIENT_MANUAL_PAUSE_SEC=$val ;;
+      lux_dark) KBD_AMBIENT_LUX_DARK=$val ;;
+      lux_dim) KBD_AMBIENT_LUX_DIM=$val ;;
+      lux_indoor) KBD_AMBIENT_LUX_INDOOR=$val ;;
+      level_dark) KBD_AMBIENT_LEVEL_DARK=$val ;;
+      level_dim) KBD_AMBIENT_LEVEL_DIM=$val ;;
+      level_indoor) KBD_AMBIENT_LEVEL_INDOOR=$val ;;
+      level_bright) KBD_AMBIENT_LEVEL_BRIGHT=$val ;;
+      hysteresis_ratio) KBD_AMBIENT_HYSTERESIS_RATIO=$val ;;
+      median_samples) KBD_AMBIENT_MEDIAN_SAMPLES=$val ;;
+      kbd_device) KBD_AMBIENT_KBD_DEVICE=$val ;;
+      als_device) KBD_AMBIENT_ALS_DEVICE=$val ;;
+      *) echo "kbd-ambient: unknown config key: $key" >&2 ;;
+    esac
+  done <"$file"
+}
+
+kbd_ambient_discover_kbd() {
+  local root="${1:-/sys}"
+  if [[ -n "${KBD_AMBIENT_KBD_DEVICE:-}" ]]; then
+    echo "$KBD_AMBIENT_KBD_DEVICE"; return 0
+  fi
+  local d
+  for d in "$root"/class/leds/*kbd_backlight*; do
+    [[ -e "$d" ]] || continue
+    basename "$d"
+    return 0
+  done
+  return 1
+}
+
+kbd_ambient_discover_als() {
+  local root="${1:-/sys}"
+  if [[ -n "${KBD_AMBIENT_ALS_DEVICE:-}" ]]; then
+    echo "$KBD_AMBIENT_ALS_DEVICE"; return 0
+  fi
+  local d name
+  for d in "$root"/bus/iio/devices/iio:device*; do
+    [[ -e "$d/in_illuminance_raw" ]] || continue
+    name=$(cat "$d/name" 2>/dev/null || true)
+    if [[ "$name" == "als" ]]; then basename "$d"; return 0; fi
+  done
+  for d in "$root"/bus/iio/devices/iio:device*; do
+    [[ -e "$d/in_illuminance_raw" ]] || continue
+    basename "$d"
+    return 0
+  done
+  return 1
+}
+
+kbd_ambient_read_lux() {
+  local root="${1:-/sys}" als_dev="$2"
+  local base raw scale
+  base="$root/bus/iio/devices/$als_dev"
+  raw=$(cat "$base/in_illuminance_raw")
+  scale=$(cat "$base/in_illuminance_scale" 2>/dev/null || echo 1)
+  kbd_ambient_lux_from_raw "$raw" "$scale"
+}

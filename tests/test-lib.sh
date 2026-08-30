@@ -41,3 +41,31 @@ assert_eq "hyst leave dark at 25" "2" "$(kbd_ambient_map_level 25 3)"
 # hysteresis: at level 0 (bright), entering indoor uses nominal 200
 assert_eq "enter indoor from bright at 200" "1" "$(kbd_ambient_map_level 200 0)"
 assert_eq "stay bright at 201" "0" "$(kbd_ambient_map_level 201 0)"
+
+# config load
+tmpcfg=$(mktemp)
+cat >"$tmpcfg" <<'EOF'
+# comment
+lux_dark=15
+idle_timeout_sec=30
+bogus_key=1
+level_dark=2
+EOF
+kbd_ambient_set_defaults
+kbd_ambient_load_config "$tmpcfg"
+assert_eq "cfg lux_dark" "15" "$KBD_AMBIENT_LUX_DARK"
+assert_eq "cfg idle" "30" "$KBD_AMBIENT_IDLE_TIMEOUT_SEC"
+assert_eq "cfg level_dark" "2" "$KBD_AMBIENT_LEVEL_DARK"
+rm -f "$tmpcfg"
+
+# discovery against fixtures
+fix=$(mktemp -d)
+mkdir -p "$fix/class/leds/samsung-galaxybook::kbd_backlight"
+echo 3 >"$fix/class/leds/samsung-galaxybook::kbd_backlight/max_brightness"
+mkdir -p "$fix/bus/iio/devices/iio:device0"
+echo als >"$fix/bus/iio/devices/iio:device0/name"
+echo 0 >"$fix/bus/iio/devices/iio:device0/in_illuminance_raw"
+echo 0.001 >"$fix/bus/iio/devices/iio:device0/in_illuminance_scale"
+assert_eq "discover kbd" "samsung-galaxybook::kbd_backlight" "$(kbd_ambient_discover_kbd "$fix")"
+assert_eq "discover als" "iio:device0" "$(kbd_ambient_discover_als "$fix")"
+rm -rf "$fix"
