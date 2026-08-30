@@ -68,16 +68,51 @@ read_hw_brightness() {
 }
 
 start_idle_watcher() {
-  if ! command -v libinput >/dev/null; then
-    log "libinput not found; idle-off disabled"
+  if command -v libinput >/dev/null; then
+    (
+      stdbuf -oL libinput debug-events 2>/dev/null | while IFS= read -r _line; do
+        date +%s >"$RUNTIME_DIR/last_input"
+      done
+    ) &
+    echo $! >"$RUNTIME_DIR/idle_watcher_pid"
     return 0
   fi
-  (
-    stdbuf -oL libinput debug-events 2>/dev/null | while IFS= read -r _line; do
-      date +%s >"$RUNTIME_DIR/last_input"
-    done
-  ) &
-  echo $! >"$RUNTIME_DIR/idle_watcher_pid"
+  # Fallback: watch /dev/input for KEY/REL/ABS (user must be in group input)
+  if command -v python3 >/dev/null; then
+    (
+      python3 - "$RUNTIME_DIR/last_input" <<'PY'
+import glob, os, select, struct, sys, time
+path = sys.argv[1]
+fmt = "llHHi"
+size = struct.calcsize(fmt)
+fds = []
+for p in sorted(glob.glob("/dev/input/event*")):
+    try:
+        fds.append(open(p, "rb", buffering=0))
+    except OSError:
+        pass
+if not fds:
+    sys.exit(0)
+while True:
+    r, _, _ = select.select(fds, [], [], 1.0)
+    for f in r:
+        data = f.read(size)
+        if not data or len(data) < size:
+            continue
+        _s, _us, typ, _code, _val = struct.unpack(fmt, data)
+        if typ in (1, 2, 3):  # EV_KEY, EV_REL, EV_ABS
+            try:
+                with open(path, "w") as out:
+                    out.write(str(int(time.time())))
+            except OSError:
+                pass
+PY
+    ) &
+    echo $! >"$RUNTIME_DIR/idle_watcher_pid"
+    log "idle watcher: python /dev/input fallback"
+    return 0
+  fi
+  log "no libinput or python3; idle-off disabled"
 }
 
 cleanup() {

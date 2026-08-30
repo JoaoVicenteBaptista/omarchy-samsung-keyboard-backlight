@@ -6,7 +6,8 @@ Automatic keyboard backlight for Samsung Galaxy Book on [Omarchy](https://omarch
 
 - `samsung-galaxybook` (or any `*kbd_backlight*` LED)
 - IIO ambient light (`in_illuminance_raw`)
-- `brightnessctl`, `libinput` (for idle), systemd user session
+- `brightnessctl`, systemd user session
+- Idle detection: `libinput` CLI (`libinput-tools`) if present, else Python 3 reading `/dev/input` (user in group `input`)
 
 ## Install
 
