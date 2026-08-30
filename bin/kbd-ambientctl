@@ -31,6 +31,18 @@ case "$cmd" in
     echo 0 >"$RUNTIME_DIR/manual_until"
     echo ACTIVE_AUTO >"$RUNTIME_DIR/state"
     date +%s >"$RUNTIME_DIR/last_input"
+    # Sync baseline to current LED so daemon does not treat it as a new manual change.
+    if command -v brightnessctl >/dev/null; then
+      dev=""
+      for candidate in /sys/class/leds/*kbd_backlight*; do
+        [[ -e $candidate ]] || continue
+        dev=$(basename "$candidate")
+        break
+      done
+      if [[ -n $dev ]]; then
+        brightnessctl -d "$dev" get >"$RUNTIME_DIR/last_set_brightness" 2>/dev/null || true
+      fi
+    fi
     echo "resumed"
     ;;
   enable)

@@ -143,6 +143,8 @@ while true; do
     manual_until=$((now + KBD_AMBIENT_MANUAL_PAUSE_SEC))
     echo "$manual_until" >"$RUNTIME_DIR/manual_until"
     echo "MANUAL_PAUSE" >"$RUNTIME_DIR/state"
+    # Accept hardware level as the new baseline so resume does not re-trigger.
+    echo "$hw" >"$RUNTIME_DIR/last_set_brightness"
     state=MANUAL_PAUSE
     current_level=$hw
     log "manual override detected hw=$hw pause until $manual_until"
@@ -152,6 +154,9 @@ while true; do
     if (( now >= manual_until )); then
       echo "ACTIVE_AUTO" >"$RUNTIME_DIR/state"
       state=ACTIVE_AUTO
+      hw=$(read_hw_brightness)
+      echo "$hw" >"$RUNTIME_DIR/last_set_brightness"
+      current_level=$hw
       log "manual pause ended"
     else
       [[ "$DRY_RUN" -eq 1 ]] && log "state=$state lux=? level=hold"
