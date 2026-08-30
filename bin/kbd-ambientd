@@ -30,7 +30,7 @@ mkdir -p "$RUNTIME_DIR"
 echo $$ >"$RUNTIME_DIR/pid"
 echo "ACTIVE_AUTO" >"$RUNTIME_DIR/state"
 echo 0 >"$RUNTIME_DIR/manual_until"
-date +%s >"$RUNTIME_DIR/last_input"
+printf '%s\n' "$(date +%s)" >"$RUNTIME_DIR/last_input"
 echo "" >"$RUNTIME_DIR/last_set_brightness"
 
 SYS_ROOT=/sys
@@ -67,11 +67,32 @@ read_hw_brightness() {
   brightnessctl -d "$KBD_DEV" get
 }
 
+# Atomic last_input write: open("w") truncates before write; a concurrent reader
+# can see an empty file and treat it as epoch 0 (false multi-year idle).
+write_last_input() {
+  local ts="${1:-$(date +%s)}"
+  local tmp="$RUNTIME_DIR/last_input.tmp.$$"
+  printf '%s\n' "$ts" >"$tmp" && mv -f "$tmp" "$RUNTIME_DIR/last_input"
+}
+
+read_last_input() {
+  local raw now
+  now=$(date +%s)
+  raw=$(cat "$RUNTIME_DIR/last_input" 2>/dev/null || true)
+  raw="${raw//$'\n'/}"
+  raw="${raw// /}"
+  if [[ "$raw" =~ ^[0-9]+$ ]] && (( raw > 1000000000 && raw < now + 3600 )); then
+    echo "$raw"
+  else
+    echo "$now"
+  fi
+}
+
 start_idle_watcher() {
   if command -v libinput >/dev/null; then
     (
       stdbuf -oL libinput debug-events 2>/dev/null | while IFS= read -r _line; do
-        date +%s >"$RUNTIME_DIR/last_input"
+        write_last_input
       done
     ) &
     echo $! >"$RUNTIME_DIR/idle_watcher_pid"
@@ -83,6 +104,7 @@ start_idle_watcher() {
       python3 - "$RUNTIME_DIR/last_input" <<'PY'
 import glob, os, select, struct, sys, time
 path = sys.argv[1]
+tmp = path + ".tmp"
 fmt = "llHHi"
 size = struct.calcsize(fmt)
 fds = []
@@ -93,6 +115,21 @@ for p in sorted(glob.glob("/dev/input/event*")):
         pass
 if not fds:
     sys.exit(0)
+
+def touch():
+    # Write temp then rename so readers never see a truncated empty file.
+    data = str(int(time.time())) + "\n"
+    tpath = tmp + "." + str(os.getpid())
+    try:
+        with open(tpath, "w") as out:
+            out.write(data)
+        os.replace(tpath, path)
+    except OSError:
+        try:
+            os.unlink(tpath)
+        except OSError:
+            pass
+
 while True:
     r, _, _ = select.select(fds, [], [], 1.0)
     for f in r:
@@ -101,11 +138,7 @@ while True:
             continue
         _s, _us, typ, _code, _val = struct.unpack(fmt, data)
         if typ in (1, 2, 3):  # EV_KEY, EV_REL, EV_ABS
-            try:
-                with open(path, "w") as out:
-                    out.write(str(int(time.time())))
-            except OSError:
-                pass
+            touch()
 PY
     ) &
     echo $! >"$RUNTIME_DIR/idle_watcher_pid"
@@ -134,12 +167,12 @@ log "kbd=$KBD_DEV als=$ALS_DEV dry_run=$DRY_RUN"
 while true; do
   now=$(date +%s)
   manual_until=$(cat "$RUNTIME_DIR/manual_until" 2>/dev/null || echo 0)
-  last_input=$(cat "$RUNTIME_DIR/last_input" 2>/dev/null || echo "$now")
+  last_input=$(read_last_input)
   state=$(cat "$RUNTIME_DIR/state" 2>/dev/null || echo ACTIVE_AUTO)
 
   hw=$(read_hw_brightness)
   last_set=$(cat "$RUNTIME_DIR/last_set_brightness" 2>/dev/null || echo "")
-  if [[ -n "$last_set" && "$hw" != "$last_set" && "$state" != "MANUAL_PAUSE" ]]; then
+  if [[ -n "$last_set" && "$hw" != "$last_set" && "$state" != "MANUAL_PAUSE" && "$state" != "IDLE_OFF" ]]; then
     manual_until=$((now + KBD_AMBIENT_MANUAL_PAUSE_SEC))
     echo "$manual_until" >"$RUNTIME_DIR/manual_until"
     echo "MANUAL_PAUSE" >"$RUNTIME_DIR/state"
@@ -166,11 +199,14 @@ while true; do
   fi
 
   idle_for=$((now - last_input))
+  if (( idle_for < 0 )); then idle_for=0; fi
   if (( idle_for >= KBD_AMBIENT_IDLE_TIMEOUT_SEC )); then
     if [[ "$state" != "IDLE_OFF" ]]; then
       echo "IDLE_OFF" >"$RUNTIME_DIR/state"
       state=IDLE_OFF
       apply_brightness 0
+      # Must track off so activity re-applies ambient level (was stuck at old level).
+      current_level=0
       log "idle ${idle_for}s -> off"
     fi
     [[ "$DRY_RUN" -eq 1 ]] && log "state=$state idle_for=$idle_for"
@@ -179,6 +215,8 @@ while true; do
   elif [[ "$state" == "IDLE_OFF" ]]; then
     echo "ACTIVE_AUTO" >"$RUNTIME_DIR/state"
     state=ACTIVE_AUTO
+    # Force ambient remap/apply on wake from idle.
+    current_level=""
     log "activity -> auto"
   fi
 
