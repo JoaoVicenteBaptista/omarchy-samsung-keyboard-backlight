@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "id": "joao.kbd-backlight",
-  "name": "Keyboard Backlight",
+  "name": "Samsung Book Keyboard Backlight",
   "version": "1.0.0",
   "author": "Joao Vicente Baptista",
   "license": "MIT",
-  "description": "Keyboard backlight on/off, intensity, and ambient auto for Omarchy.",
+  "description": "Enable and manage keyboard backlight on Samsung Galaxy Book laptops (on/off, intensity, ambient auto). Implemented and tested on a Galaxy Book 2 Pro SE.",
   "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Keyboard Backlight",
-    "description": "Control keyboard backlight brightness and ambient auto.",
+    "displayName": "Samsung Kbd Backlight",
+    "description": "Keyboard backlight control for Samsung Galaxy Book laptops.",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right"
