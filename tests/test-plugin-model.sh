@@ -6,7 +6,7 @@ node <<NODE
 const fs = require("fs");
 const path = require("path");
 const root = process.env.ROOT;
-const code = fs.readFileSync(path.join(root, "plugin/joao.kbd-backlight/Model.js"), "utf8");
+const code = fs.readFileSync(path.join(root, "Model.js"), "utf8");
 eval(code);
 function assertEq(name, exp, act) {
   if (String(exp) !== String(act)) {

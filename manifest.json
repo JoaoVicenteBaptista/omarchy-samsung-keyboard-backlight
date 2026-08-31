@@ -3,7 +3,7 @@
   "id": "joao.kbd-backlight",
   "name": "Keyboard Backlight",
   "version": "1.0.0",
-  "author": "Joao",
+  "author": "Joao Vicente Baptista",
   "license": "MIT",
   "description": "Keyboard backlight on/off, intensity, and ambient auto for Omarchy.",
   "kinds": ["bar-widget"],

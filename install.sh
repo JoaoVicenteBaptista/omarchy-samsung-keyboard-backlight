@@ -5,6 +5,8 @@ BIN_DIR="$HOME/.local/bin"
 LIB_DIR="$HOME/.local/lib"
 UNIT_DIR="$HOME/.config/systemd/user"
 CFG_DIR="$HOME/.config/omarchy-samsung-kbd-backlight"
+PLUGIN_ID="joao.kbd-backlight"
+PLUGIN_DST="$HOME/.config/omarchy/plugins/$PLUGIN_ID"
 
 mkdir -p "$BIN_DIR" "$LIB_DIR" "$UNIT_DIR" "$CFG_DIR"
 
@@ -43,21 +45,24 @@ fi
 
 echo "ctl: kbd-ambientctl status"
 
-# --- Omarchy bar plugin ---
-PLUGIN_SRC="$ROOT/plugin/joao.kbd-backlight"
-PLUGIN_DST="$HOME/.config/omarchy/plugins/joao.kbd-backlight"
-if [[ -d "$PLUGIN_SRC" ]]; then
-  mkdir -p "$HOME/.config/omarchy/plugins"
-  rm -rf "$PLUGIN_DST"
-  mkdir -p "$PLUGIN_DST"
-  cp -a "$PLUGIN_SRC"/. "$PLUGIN_DST"/
+# --- Omarchy bar plugin (file copy; prefer omarchy plugin add for git-managed installs) ---
+if [[ -f "$ROOT/manifest.json" ]]; then
+  if [[ -d "$PLUGIN_DST/.git" ]]; then
+    echo "Plugin already git-managed at $PLUGIN_DST (skipping copy)"
+  else
+    mkdir -p "$HOME/.config/omarchy/plugins"
+    rm -rf "$PLUGIN_DST"
+    mkdir -p "$PLUGIN_DST"
+    for f in manifest.json BarWidget.qml Panel.qml Service.qml Model.js; do
+      install -m 0644 "$ROOT/$f" "$PLUGIN_DST/$f"
+    done
+    echo "Installed Omarchy plugin $PLUGIN_ID"
+  fi
   if command -v omarchy >/dev/null 2>&1; then
-    omarchy plugin enable joao.kbd-backlight --section right 2>/dev/null || true
-    omarchy bar put joao.kbd-backlight --section right --before omarchy.power 2>/dev/null \
-      || omarchy bar put joao.kbd-backlight --section right 2>/dev/null \
+    omarchy plugin enable "$PLUGIN_ID" --section right 2>/dev/null || true
+    omarchy bar put "$PLUGIN_ID" --section right --before omarchy.power 2>/dev/null \
+      || omarchy bar put "$PLUGIN_ID" --section right 2>/dev/null \
       || true
     omarchy-shell shell rescanPlugins 2>/dev/null || true
   fi
-  echo "Installed Omarchy plugin joao.kbd-backlight"
 fi
-
